@@ -1,0 +1,31 @@
+ChangeLog for RudeSMTP C++ Library
+
+Copyright (C) 2003, 2004, 2005 Matthew Flood
+See file AUTHORS for contact information
+
+This file is part of RudeSMTP.
+
+RudeSMTP is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
+
+RudeSMTP is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with RudeSMTP; see the file COPYING.  If not, write to
+the Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+Boston, MA 02111-1307, USA.
+
+* Tue Jan 08 2008 Matt Flood <matt@rudeserver.com>
+- 1.0.0-2
+- Minor changes to build-scripts
+
+* Thu Apr 10 2006 Matt Flood <matt@rudeserver.com>
+- 1.0.0-1
+- First RPM Release
+
+--End of Change Log--
