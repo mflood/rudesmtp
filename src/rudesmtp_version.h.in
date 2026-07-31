@@ -1,0 +1,12 @@
+// rudesmtp_version.h - generated from rudesmtp_version.h.in by CMake.
+//
+// version() used to return the literal "rudeserver.com SMTP version 1.0",
+// which tracked nothing: it was unchanged while configure.ac moved on, and it
+// named a host that no longer resolves.
+//
+#ifndef INCLUDED_RUDESMTP_VERSION_H
+#define INCLUDED_RUDESMTP_VERSION_H
+
+#define RUDESMTP_VERSION_STRING "@PROJECT_VERSION@"
+
+#endif

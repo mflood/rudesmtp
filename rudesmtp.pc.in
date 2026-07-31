@@ -1,0 +1,12 @@
+prefix=@RUDESMTP_PC_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: rudesmtp
+Description: @PROJECT_DESCRIPTION@
+URL: @PROJECT_HOMEPAGE_URL@
+Version: @PROJECT_VERSION@
+Requires: rudesocket
+Libs: -L${libdir} -lrudesmtp
+Cflags: -I${includedir}
