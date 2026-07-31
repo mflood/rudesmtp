@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest      # x86_64 Linux
+          - ubuntu-24.04-arm   # ARM Linux — catches char-signedness bugs x86 hides
+          - macos-latest       # Apple Silicon
+          - windows-latest     # MSVC
+        include:
+          # rudesocket is pulled in by FetchContent and builds SSL from the
+          # runner image where OpenSSL is present.
+          - os: macos-latest
+            cmake_args: -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3
+          # No system OpenSSL on the MSVC runners. rudesmtp itself does not
+          # need SSL yet; when STARTTLS lands it will, and this is the line
+          # that will have to change.
+          - os: windows-latest
+            cmake_args: -DRUDESOCKET_WITH_SSL=OFF
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      # Repeated because the SIGPIPE defect in rudesocket presented as an
+      # intermittent failure, not a consistent one: three runs in six. A
+      # single green run would not have caught it.
+      - name: Test
+        run: |
+          ctest --test-dir build -C Release --output-on-failure
+          ctest --test-dir build -C Release --output-on-failure
+          ctest --test-dir build -C Release --output-on-failure
+
+      - name: Install (smoke test)
+        if: runner.os != 'Windows'
+        run: cmake --install build --prefix "${{ github.workspace }}/local-install"
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure with ASan/UBSan
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install clang-format
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-format-17
+
+      - name: Check formatting
+        run: |
+          files=$(git ls-files '*.cpp' '*.h')
+          echo "checking $(echo "$files" | wc -l) files"
+          clang-format-17 --dry-run --Werror $files
+
+  tidy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install clang-tidy
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang-tidy-17
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      # .clang-tidy sets WarningsAsErrors, so any new finding fails the job.
+      # Only this project's own sources are checked: rudesocket arrives via
+      # FetchContent and is checked in its own repository.
+      - name: Run clang-tidy
+        run: |
+          files=$(git ls-files 'src/*.cpp')
+          clang-tidy-17 -p build $files

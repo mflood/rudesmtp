@@ -9,12 +9,12 @@
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation; either version 2, or (at your option)
 // any later version.
-// 
+//
 // RudeSMTP is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-// 
+//
 // You should have received a copy of the GNU General Public License
 // along with RudeSMTP; (see COPYING) if not, write to the Free Software
 // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
@@ -27,7 +27,8 @@
 
 using namespace rude::smtp;
 
-namespace rude{
+namespace rude
+{
 
 
 SMTP::SMTP()
@@ -50,9 +51,24 @@ const char *SMTP::getError()
 	return d_implementation->getError();
 }
 
+int SMTP::getResponseCode()
+{
+	return d_implementation->getResponseCode();
+}
+
+const char *SMTP::getResponse()
+{
+	return d_implementation->getResponse();
+}
+
+void SMTP::setTimeout(int seconds)
+{
+	d_implementation->setTimeout(seconds);
+}
+
 bool SMTP::connect(const char *address, int port)
 {
-	return d_implementation->connect(address,port);
+	return d_implementation->connect(address, port);
 }
 
 bool SMTP::sayHelo(const char *heloname)
@@ -82,5 +98,3 @@ bool SMTP::disconnect()
 
 
 } // end namespace rude
-
-

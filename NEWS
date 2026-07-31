@@ -3,6 +3,99 @@ See ChangeLog for more detailed information on internal changes
 See the end for copying conditions.
 
 __________________________________________________________________________________
+Release 2.0.0 - Matthew Flood 2026-07-30
+
+	NOTE: this release still speaks HELO and sends in the clear.  There is
+	no authentication and no encryption, so it can only be used against a
+	server that accepts unauthenticated relay - in practice a local one.
+	EHLO, AUTH and TLS are the next piece of work.  The reply handling
+	below had to be fixed first: EHLO is multiline by design, and the old
+	code could not read a multiline reply.
+
+	SOURCE-INCOMPATIBLE CHANGES
+
+	- SMTP is no longer copyable.  It owns a rude::Socket and both SMTP and
+	  SMTPImpl held it as a raw pointer with the default copy operations
+	  intact, so any copy - passing by value, storing in a container -
+	  double-freed the socket.  Copy construction and copy assignment are
+	  now deleted, which turns that into a compile error.
+	- version() now returns the library version, e.g. "2.0.0".  It used to
+	  return the literal "rudeserver.com SMTP version 1.0", which tracked
+	  nothing and named a host that no longer resolves.  Code parsing that
+	  string will need to change.
+
+	PROTOCOL FIXES
+
+	- FIXED: a multiline reply desynchronized the session.  RFC 5321
+	  section 4.2 lets a reply span several lines, each carrying the code
+	  with '-' after it on every line but the last.  Only the first line was
+	  read, so the remainder stayed in the buffer and was consumed as the
+	  reply to the NEXT command - every later exchange reading one reply
+	  further behind.  A multiline greeting alone was enough to do it.
+	- FIXED: a message whose first line began with '.' lost that character.
+	  Dot-stuffing (RFC 5321 section 4.5.2) doubled a '.' that followed CR,
+	  LF or FF, and the first line of a message follows nothing, so the
+	  receiving server stripped a dot that was never doubled.
+	- FIXED: every message gained a trailing blank line.  The end-of-data
+	  marker was sent as "\r\n.\r\n" whatever the message ended with, so a
+	  message already ending in CRLF - which is every correctly assembled
+	  message - got an extra one.
+	- FIXED: "MAIL FROM: <addr>" carried a space after the colon that the
+	  grammar in RFC 5321 section 4.1.1.2 does not have.  Most servers
+	  tolerate it; some do not.
+	- Addresses are now wrapped in angle brackets if the caller left them
+	  off, as the grammar requires.  An empty sender becomes "<>", the null
+	  reverse-path used when sending a bounce.
+
+	RELIABILITY
+
+	- NEW: getResponseCode() returns the server's three-digit reply code,
+	  and getResponse() its full text.  Replies used to be judged by
+	  comparing character zero to a digit, so 421 (shutting down, retry
+	  later) and 550 (rejected, never retry) were indistinguishable - the
+	  difference between requeueing a message and bouncing it.  Codes
+	  within a class were conflated too: 250 and 251, or a 354 where a 250
+	  belonged.
+	- NEW: setTimeout() bounds how long to wait on a silent server; the
+	  default is 30 seconds.  No timeout was ever set before, and rudesocket
+	  blocks by default, so a server that accepted the connection and then
+	  said nothing hung the calling thread indefinitely.  The caller could
+	  not fix it: the socket is not exposed.
+	- FIXED: addRecipient(), sendData() and disconnect() ignored whether
+	  their write had succeeded and then waited for a reply that a broken
+	  connection was never going to produce.
+	- FIXED: disconnect() returned early on an unexpected reply to QUIT,
+	  leaving the connection open.  The socket is now closed whatever the
+	  server says.
+	- disconnect() is safe to call more than once, and on an object that
+	  never connected.
+	- connect() rejects a null address or a non-positive port instead of
+	  attempting the connection.
+	- A reply that is not three digits, or a run of continuation lines with
+	  no end, is now an error rather than something to keep reading.
+
+	BUILD
+
+	- The autotools build is gone (configure, configure.ac, Makefile.am,
+	  Makefile.in, aclocal.m4, config.guess, config.sub, install-sh,
+	  ltmain.sh, missing, depcomp and INSTALL), replaced by CMake.  The
+	  config.guess it shipped dated from 2003 and could not configure on any
+	  ARM machine - today that means every Apple Silicon Mac and every ARM
+	  Linux server.
+	- The dependency on rudesocket is finally declared.  Every byte on the
+	  wire goes through rude::Socket, but no README, NEWS or INSTALL file
+	  mentioned it, and configure.ac carried an autoscan stub -
+	  AC_CHECK_LIB([rudesocket], [main]) with its "# FIXME" comment still
+	  attached - that probed for a symbol a C++ library does not export.
+	  CMake now finds rudesocket properly, or fetches and builds it.
+	  rudesocket 1.7.1 or newer is required.
+	- CI runs on Linux x86-64, Linux ARM, macOS and Windows, plus
+	  ASan/UBSan, clang-format and clang-tidy.
+	- Tests run against a scriptable in-process SMTP server, so the cases
+	  above - multiline replies, 4xx and 5xx, a silent server, a connection
+	  dropped mid-conversation - are actually exercised rather than assumed.
+
+__________________________________________________________________________________
 Version 1.0.0-1
 
 	** RudeSMTP became open source and is distributed under the GNU Public License.
