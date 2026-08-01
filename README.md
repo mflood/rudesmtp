@@ -6,14 +6,16 @@ First released in 2003 as part of the [RudeServer](https://github.com/mflood)
 C++ library family; modernized in 2026 (CMake, C++17, RFC 5321 conformance
 fixes, CI).
 
-> **Read this before you use it.** This release speaks `HELO` and sends in the
-> clear. There is **no authentication and no encryption**, so it can only talk
-> to a server that accepts unauthenticated relay — in practice a local one.
-> It cannot send through Gmail, Microsoft 365, SES, Mailgun or any other
-> hosted provider. `EHLO`, `AUTH` and TLS are the next piece of work; see
-> [Roadmap](#roadmap).
+As of 2.1.0 this speaks `EHLO`, authenticates with `AUTH PLAIN`/`AUTH LOGIN`,
+and encrypts with implicit TLS (port 465) or `STARTTLS` (port 587) — it can
+send through Gmail, Microsoft 365, SES, Mailgun or any other hosted provider
+that takes a username and password. Plain `HELO` over an unauthenticated
+connection still works unchanged, for a local relay that does not need any of
+that.
 
 ## Quick start
+
+Against a local relay, unauthenticated:
 
 ```cpp
 #include <rude/smtp.h>
@@ -47,6 +49,35 @@ int main()
     smtp.disconnect();
 }
 ```
+
+Against a hosted provider, over `STARTTLS` on port 587:
+
+```cpp
+rude::SMTP smtp;
+smtp.connect("smtp.example.com", 587);
+smtp.sayEhlo("myhost.example.com");
+
+if (!smtp.startTLS()) {
+    std::cerr << smtp.getError() << "\n";
+    return 1;
+}
+smtp.sayEhlo("myhost.example.com");   // required again -- see startTLS() below
+
+if (!smtp.authenticate("me@example.com", "app-password")) {
+    std::cerr << smtp.getError() << "\n";
+    return 1;
+}
+
+smtp.sayFrom("me@example.com");
+smtp.addRecipient("you@example.com");
+smtp.sendData("From: me@example.com\r\nTo: you@example.com\r\n"
+              "Subject: hello\r\n\r\nThe body.\r\n");
+smtp.disconnect();
+```
+
+For implicit TLS on port 465, replace `connect()` + `startTLS()` with a single
+`connectSSL()` — the connection is already encrypted, so one `sayEhlo()` is
+enough.
 
 Compile with:
 
@@ -94,7 +125,7 @@ sudo cmake --install build
 ### Using it from CMake
 
 ```cmake
-find_package(rudesmtp 2.0 REQUIRED)
+find_package(rudesmtp 2.1 REQUIRED)
 target_link_libraries(myapp PRIVATE rudesmtp::rudesmtp)
 ```
 
@@ -104,7 +135,7 @@ Or without installing anything:
 include(FetchContent)
 FetchContent_Declare(rudesmtp
     GIT_REPOSITORY https://github.com/mflood/rudesmtp.git
-    GIT_TAG v2.0.0)
+    GIT_TAG v2.1.0)
 FetchContent_MakeAvailable(rudesmtp)
 target_link_libraries(myapp PRIVATE rudesmtp::rudesmtp)
 ```
@@ -116,7 +147,11 @@ The calls are the SMTP conversation itself, in order:
 | | |
 |---|---|
 | `connect(host, port)` | Opens the connection, reads the greeting |
-| `sayHelo(hostname)` | `HELO` |
+| `connectSSL(host, port)` | Same, already wrapped in TLS — port 465 |
+| `sayHelo(hostname)` | `HELO` — no extensions, no `startTLS()`/`authenticate()` after |
+| `sayEhlo(hostname)` | `EHLO` — records what the server advertises |
+| `startTLS()` | Upgrades an open connection to TLS (RFC 3207) — port 587 |
+| `authenticate(user, password)` | `AUTH PLAIN`/`AUTH LOGIN` (RFC 4954) |
 | `sayFrom(address)` | `MAIL FROM` — brackets added if you leave them off |
 | `addRecipient(address)` | `RCPT TO` — call once per recipient |
 | `sendData(message)` | The whole message: headers, blank line, body |
@@ -125,11 +160,38 @@ The calls are the SMTP conversation itself, in order:
 | `getResponse()` | The last reply's full text |
 | `getError()` | What went wrong, including the server's own words |
 | `setTimeout(seconds)` | How long to wait on a silent server (default 30) |
+| `setSSLVerify(bool)` | Certificate verification for `connectSSL()`/`startTLS()` (on by default) |
+| `allowPlaintextAuth(bool)` | Permit `authenticate()` without encryption (off by default) |
+| `isSecure()` | True once the connection is carrying TLS |
+| `supportsExtension(name)` / `supportsAuth(mechanism)` | What the last `sayEhlo()` advertised |
 
 `sendData()` takes the complete message and generates none of it — no headers
 are added for you. Use CRLF line endings. Lines beginning with `.` are escaped
 as the protocol requires, and the end-of-data marker is appended, so do not add
 it yourself.
+
+## Encryption and authentication
+
+`authenticate()` refuses to run on a connection that is not encrypted, unless
+`allowPlaintextAuth(true)` has been called first. `AUTH PLAIN` and `AUTH LOGIN`
+both put the password on the wire as base64 — an encoding, not encryption — so
+sending it in the clear means anyone who can see the connection has it. This
+is a refusal to send, not "ask and let the server reject it": nothing
+resembling `AUTH` reaches the wire when the connection is unencrypted.
+
+`startTLS()` clears everything the prior `sayEhlo()` learned. RFC 3207 section
+4.2 requires this: that exchange happened before encryption started, so a
+network attacker could have altered it — hiding `AUTH` to force a weaker
+mechanism, for instance. Call `sayEhlo()` again after `startTLS()` succeeds;
+`authenticate()` and `supportsExtension()`/`supportsAuth()` will not see
+anything from before the upgrade.
+
+Not in this release: SASL mechanisms beyond `PLAIN` and `LOGIN` — no
+`CRAM-MD5`, no `XOAUTH2` (needed by Google Workspace accounts with Basic Auth
+disabled, i.e. most of them; an app password sidesteps this and works with
+`PLAIN`/`LOGIN`). Also no command pipelining and no `SIZE`-based rejection
+before sending — `sendData()` finds out the same way a `HELO`-only client
+always has, from the reply.
 
 ## What changed in 2.0.0
 
@@ -155,16 +217,14 @@ pointed at lenient ones.
 
 See `NEWS` for the full list.
 
-## Roadmap
+## What's new in 2.1.0
 
-This library is only useful against a local relay until the following land:
-
-1. **`EHLO` with capability parsing** — needed before anything else, and the
-   reason multiline reply handling had to be fixed first.
-2. **`AUTH PLAIN` / `AUTH LOGIN`** — required by every hosted provider.
-3. **Implicit TLS on port 465** — rudesocket already has `connectSSL()`.
-4. **`STARTTLS` on port 587** — rudesocket gained `startSSL()` in 1.7.0 for
-   exactly this.
+Everything above the `HELO`-only path: `sayEhlo()` with capability parsing,
+`authenticate()` (`AUTH PLAIN`/`AUTH LOGIN`), `connectSSL()` (implicit TLS,
+port 465) and `startTLS()` (RFC 3207, port 587). Nothing from 2.0.0's API
+changed — this release is additive. See [Encryption and
+authentication](#encryption-and-authentication) above and `NEWS` for the
+details, including why `startTLS()` requires a second `sayEhlo()`.
 
 ## Bug reports
 

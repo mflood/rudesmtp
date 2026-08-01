@@ -62,9 +62,28 @@ class SMTPImpl;
 // smtp.disconnect();<br>
 // </code>
 //
-// <b>Note:</b> this client speaks HELO and sends in the clear.  It has no
-// authentication and no encryption, so it can only be used against a server
-// that accepts unauthenticated relay - in practice a local one.
+// <b>To use encryption and authentication</b> - required by every hosted
+// provider (Gmail, Microsoft 365, SES, ...) - call sayEhlo() instead of
+// sayHelo(), after connect() (port 587) or connectSSL() (port 465):
+// <p>
+// <code>
+// rude::SMTP smtp;<br>
+// smtp.connect("smtp.example.com", 587);<br>
+// smtp.sayEhlo("myhost.example.com");<br>
+// smtp.startTLS();<br>
+// smtp.sayEhlo("myhost.example.com");&nbsp;// again: see startTLS()<br>
+// smtp.authenticate("user@example.com", "app-password");<br>
+// smtp.sayFrom("user@example.com");<br>
+// &nbsp;&nbsp;// ... as before ...<br>
+// </code>
+// <p>
+// Or, for implicit TLS on port 465, replace connect() with connectSSL() and
+// drop the startTLS() call - the connection is already encrypted, so one
+// sayEhlo() is enough.
+// <p>
+// <b>Note:</b> plain sayHelo() still sends in the clear with no
+// authentication, and can only be used against a server that accepts
+// unauthenticated relay - in practice a local one.
 //=
 class SMTP
 {
@@ -136,19 +155,120 @@ class SMTP
 
 
 	//=
+	// Enables or disables certificate verification for connectSSL() and
+	// startTLS() (enabled by default).  See rude::Socket::setSSLVerify()
+	// for what verification checks.  Call before connect() /
+	// connectSSL().
+	//=
+	void setSSLVerify(bool verify);
+
+
+	//=
+	// Permits authenticate() to run on a connection that is not
+	// encrypted (disabled by default).
+	//
+	// AUTH PLAIN and AUTH LOGIN both put the password on the wire as
+	// base64, which is an encoding and not encryption: anyone who can
+	// observe the connection can read it, and anyone who can modify it
+	// can strip STARTTLS from the server's greeting and let the client
+	// authenticate anyway.  Refusing by default makes that downgrade fail
+	// loudly.  Call this only if you have another way of trusting the
+	// network - a loopback connection, a private VPN - not to make
+	// unencrypted authentication acceptable in general.
+	//=
+	void allowPlaintextAuth(bool allow);
+
+
+	//=
+	// True once the connection is carrying TLS, from connectSSL() or a
+	// successful startTLS().
+	//=
+	bool isSecure();
+
+
+	//=
+	// True if the server's EHLO reply advertised the named extension,
+	// e.g. "STARTTLS", "SIZE", "8BITMIME".  Always false before sayEhlo()
+	// succeeds, and reset by startTLS() - see its documentation for why.
+	//=
+	bool supportsExtension(const char *name);
+
+
+	//=
+	// True if the server's EHLO reply advertised the named SASL
+	// mechanism, e.g. "PLAIN" or "LOGIN".
+	//=
+	bool supportsAuth(const char *mechanism);
+
+
+	//=
 	// Opens the connection and reads the server's greeting.
 	// Returns false unless the greeting is a 220.
 	//
-	// Port 25 is the usual relay port.  Ports 465 and 587 require
-	// encryption and authentication, which this library does not have.
+	// Port 25 is the traditional relay port and rarely requires either
+	// encryption or authentication.  Port 587 (submission) expects
+	// sayEhlo() followed by startTLS().
 	//=
 	bool connect(const char *address, int port);
 
 
 	//=
-	// Sends HELO with the given hostname.
+	// Opens the connection already wrapped in TLS - "implicit TLS", what
+	// port 465 expects - and reads the greeting.  The certificate is
+	// verified against \a address by default; see setSSLVerify().
+	//
+	// Requires a build with OpenSSL; without it this returns false and
+	// getError() says so.
+	//=
+	bool connectSSL(const char *address, int port);
+
+
+	//=
+	// Negotiates TLS on a connection that is already open (RFC 3207) -
+	// the "STARTTLS" pattern port 587 expects.  Call after sayEhlo() has
+	// shown the server advertises STARTTLS.
+	//
+	// <b>You must call sayEhlo() again after this succeeds.</b> The
+	// capabilities from the first EHLO were read before encryption
+	// started, so a network attacker could have altered that reply -
+	// hiding AUTH to force a weaker mechanism, for instance - and RFC
+	// 3207 requires discarding it.  Only what arrives inside TLS can be
+	// trusted; this call clears the capability list to make sure nothing
+	// stale gets used by accident.
+	//
+	// A failed handshake ends the connection - a half-negotiated TLS
+	// session is not usable - so do not call disconnect() first and do
+	// not retry on the same object.
+	//=
+	bool startTLS();
+
+
+	//=
+	// Authenticates with AUTH PLAIN or AUTH LOGIN (RFC 4954), preferring
+	// PLAIN.  Call after sayEhlo(), and after startTLS() or
+	// connectSSL() unless you have called allowPlaintextAuth(true).
+	//=
+	bool authenticate(const char *user, const char *password);
+
+
+	//=
+	// Sends HELO with the given hostname.  Advertises no extensions and
+	// cannot be followed by startTLS() or authenticate() - use sayEhlo()
+	// for those.
 	//=
 	bool sayHelo(const char *heloname);
+
+
+	//=
+	// Sends EHLO with the given hostname and records the extensions and
+	// AUTH mechanisms the server advertises.  Required before startTLS()
+	// or authenticate().
+	//
+	// Returns false if the server does not understand EHLO at all (a
+	// pre-2001 server, essentially never seen today); fall back to
+	// sayHelo() in that case.
+	//=
+	bool sayEhlo(const char *heloname);
 
 
 	//=

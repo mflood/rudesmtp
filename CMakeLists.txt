@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(rudesmtp
-    VERSION 2.0.0
+    VERSION 2.1.0
     DESCRIPTION "C++ SMTP client library"
     HOMEPAGE_URL "https://github.com/mflood/rudesmtp"
     LANGUAGES CXX)
@@ -79,7 +79,7 @@ target_include_directories(rudesmtp PUBLIC
 # Shared-library version follows the old libtool -version-info 1:0:0 lineage,
 # advanced for the 2.0.0 interface change.
 set_target_properties(rudesmtp PROPERTIES
-    VERSION 2.0.0
+    VERSION 2.1.0
     SOVERSION 2
     POSITION_INDEPENDENT_CODE ON
     WINDOWS_EXPORT_ALL_SYMBOLS ON)

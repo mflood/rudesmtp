@@ -66,14 +66,59 @@ void SMTP::setTimeout(int seconds)
 	d_implementation->setTimeout(seconds);
 }
 
+void SMTP::setSSLVerify(bool verify)
+{
+	d_implementation->setSSLVerify(verify);
+}
+
+void SMTP::allowPlaintextAuth(bool allow)
+{
+	d_implementation->allowPlaintextAuth(allow);
+}
+
+bool SMTP::isSecure()
+{
+	return d_implementation->isSecure();
+}
+
+bool SMTP::supportsExtension(const char *name)
+{
+	return d_implementation->supportsExtension(name);
+}
+
+bool SMTP::supportsAuth(const char *mechanism)
+{
+	return d_implementation->supportsAuth(mechanism);
+}
+
 bool SMTP::connect(const char *address, int port)
 {
 	return d_implementation->connect(address, port);
 }
 
+bool SMTP::connectSSL(const char *address, int port)
+{
+	return d_implementation->connectSSL(address, port);
+}
+
+bool SMTP::startTLS()
+{
+	return d_implementation->startTLS();
+}
+
+bool SMTP::authenticate(const char *user, const char *password)
+{
+	return d_implementation->authenticate(user, password);
+}
+
 bool SMTP::sayHelo(const char *heloname)
 {
 	return d_implementation->sayHelo(heloname);
+}
+
+bool SMTP::sayEhlo(const char *heloname)
+{
+	return d_implementation->sayEhlo(heloname);
 }
 
 bool SMTP::sayFrom(const char *from)
