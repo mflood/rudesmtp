@@ -44,7 +44,11 @@ static int decodeChar(char c)
 static std::string base64Decode(const std::string &input)
 {
 	std::string out;
-	int buf = 0, bits = 0;
+	unsigned int buf = 0; // holds only the bits not yet emitted -- masked
+						  // below, so it never accumulates past a handful
+						  // of bits and can never overflow regardless of
+						  // input length
+	int bits = 0;
 	for(size_t i = 0; i < input.size(); i++)
 	{
 		if(input[i] == '=')
@@ -56,12 +60,13 @@ static std::string base64Decode(const std::string &input)
 		{
 			continue;
 		}
-		buf = (buf << 6) | v;
+		buf = (buf << 6) | (unsigned int) v;
 		bits += 6;
 		if(bits >= 8)
 		{
 			bits -= 8;
 			out += (char) ((buf >> bits) & 0xFF);
+			buf &= (1u << bits) - 1; // drop the bits just emitted
 		}
 	}
 	return out;
