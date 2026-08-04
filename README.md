@@ -1,44 +1,44 @@
-# rudesmtp
+# RudeSMTP
 
-A small C++ client library for sending mail over SMTP.
+RudeSMTP is a focused C++ client for sending messages through trusted SMTP
+relays. Its API follows the SMTP conversation directly and gives callers the
+server response information needed for delivery handling.
 
-First released in 2003 as part of the [RudeServer](https://github.com/mflood)
-C++ library family; modernized in 2026 (CMake, C++17, RFC 5321 conformance
-fixes, CI).
+## Why RudeSMTP?
 
-> **Read this before you use it.** This release speaks `HELO` and sends in the
-> clear. There is **no authentication and no encryption**, so it can only talk
-> to a server that accepts unauthenticated relay — in practice a local one.
-> It cannot send through Gmail, Microsoft 365, SES, Mailgun or any other
-> hosted provider. `EHLO`, `AUTH` and TLS are the next piece of work; see
-> [Roadmap](#roadmap).
+- Provides a compact API that mirrors the SMTP envelope and data exchange.
+- Handles multiline server replies without losing protocol synchronization.
+- Exposes numeric response codes for retry, rejection, and bounce decisions.
+- Applies a configurable timeout to silent servers.
+- Implements SMTP dot-stuffing and envelope address formatting.
+- Reports transport and server errors through a single interface.
+
+RudeSMTP 2.0 is designed for trusted relays that accept unauthenticated SMTP
+over plain TCP, including local Postfix relays, development mail catchers, and
+controlled private infrastructure.
 
 ## Quick start
 
 ```cpp
 #include <rude/smtp.h>
+
 #include <iostream>
 
 int main()
 {
     rude::SMTP smtp;
+    smtp.setTimeout(30);
 
-    if (!smtp.connect("localhost", 25)) {
-        std::cerr << smtp.getError() << "\n";
-        return 1;
-    }
-
-    smtp.sayHelo("myhost.example.com");
-    smtp.sayFrom("me@example.com");
-    smtp.addRecipient("you@example.com");
-
-    if (!smtp.sendData("From: me@example.com\r\n"
+    if (!smtp.connect("localhost", 25) ||
+        !smtp.sayHelo("myhost.example.com") ||
+        !smtp.sayFrom("me@example.com") ||
+        !smtp.addRecipient("you@example.com") ||
+        !smtp.sendData("From: me@example.com\r\n"
                        "To: you@example.com\r\n"
                        "Subject: hello\r\n"
                        "\r\n"
                        "The body.\r\n")) {
-        // 4xx is worth retrying later; 5xx is not.
-        std::cerr << "failed (" << smtp.getResponseCode() << "): "
+        std::cerr << "SMTP error (" << smtp.getResponseCode() << "): "
                   << smtp.getError() << "\n";
         smtp.disconnect();
         return 1;
@@ -48,57 +48,48 @@ int main()
 }
 ```
 
-Compile with:
+Compile a static installed copy with pkg-config:
 
 ```sh
 c++ -std=c++17 app.cpp $(pkg-config --cflags --libs --static rudesmtp)
 ```
 
-`--static` matters: rudesmtp builds a static library by default and rudesocket
-is a private dependency, so a plain `pkg-config --libs` can leave the link
-short. Drop it only if you built with `-DBUILD_SHARED_LIBS=ON`.
+For a shared build, use `pkg-config --cflags --libs rudesmtp` instead.
 
-## Retry or bounce
+## Build and install
 
-`getResponseCode()` returns the server's three-digit reply code, which is what
-distinguishes a failure worth retrying from one that never will be:
-
-```cpp
-if (!smtp.addRecipient(address)) {
-    if (smtp.getResponseCode() / 100 == 4) {
-        requeue(message);        // 4xx — temporary; the mailbox is busy,
-                                 // the server is shutting down, greylisting
-    } else {
-        bounce(message);         // 5xx — permanent; no such user, refused
-    }
-}
-```
-
-Before 2.0.0 this was not possible: replies were judged by comparing the first
-character to a digit, so `421 Service not available` and `550 No such user`
-both produced a bare `false`.
-
-## Building
-
-Requires CMake 3.16+, a C++17 compiler, and
-[rudesocket](https://github.com/mflood/rudesocket) 1.7.1 or newer. If
-rudesocket is not installed, the build fetches and builds it automatically.
+RudeSMTP requires CMake 3.16 or newer, a C++17 compiler, and RudeSocket 1.7.1
+or newer. If RudeSocket is not installed, CMake fetches and builds it.
 
 ```sh
+git clone https://github.com/mflood/rudesmtp.git
+cd rudesmtp
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ctest --test-dir build
-sudo cmake --install build
+cmake --install build --prefix ./install
 ```
 
-### Using it from CMake
+The default build is static. Pass `-DBUILD_SHARED_LIBS=ON` to build shared
+libraries.
+
+For an install outside the system prefix, point CMake consumers at it with
+`-DCMAKE_PREFIX_PATH=/path/to/install`. For pkg-config, add
+`/path/to/install/lib/pkgconfig` to `PKG_CONFIG_PATH`.
+
+The runnable example is in
+[`examples/sendmail.cpp`](examples/sendmail.cpp).
+
+## Use from CMake
+
+With an installed copy:
 
 ```cmake
 find_package(rudesmtp 2.0 REQUIRED)
 target_link_libraries(myapp PRIVATE rudesmtp::rudesmtp)
 ```
 
-Or without installing anything:
+Or include it directly with `FetchContent`:
 
 ```cmake
 include(FetchContent)
@@ -109,67 +100,56 @@ FetchContent_MakeAvailable(rudesmtp)
 target_link_libraries(myapp PRIVATE rudesmtp::rudesmtp)
 ```
 
-## The API
+## SMTP conversation
 
-The calls are the SMTP conversation itself, in order:
+The calls map directly to the protocol:
 
-| | |
+| Call | Purpose |
 |---|---|
-| `connect(host, port)` | Opens the connection, reads the greeting |
-| `sayHelo(hostname)` | `HELO` |
-| `sayFrom(address)` | `MAIL FROM` — brackets added if you leave them off |
-| `addRecipient(address)` | `RCPT TO` — call once per recipient |
-| `sendData(message)` | The whole message: headers, blank line, body |
-| `disconnect()` | `QUIT`, and closes the connection either way |
-| `getResponseCode()` | The last reply's numeric code |
-| `getResponse()` | The last reply's full text |
-| `getError()` | What went wrong, including the server's own words |
-| `setTimeout(seconds)` | How long to wait on a silent server (default 30) |
+| `connect(host, port)` | Open the connection and read the greeting |
+| `sayHelo(hostname)` | Identify the client with `HELO` |
+| `sayFrom(address)` | Set the `MAIL FROM` envelope address |
+| `addRecipient(address)` | Add one `RCPT TO` recipient |
+| `sendData(message)` | Send the complete message |
+| `disconnect()` | Send `QUIT` and close the connection |
+| `setTimeout(seconds)` | Set the server-response timeout |
 
-`sendData()` takes the complete message and generates none of it — no headers
-are added for you. Use CRLF line endings. Lines beginning with `.` are escaped
-as the protocol requires, and the end-of-data marker is appended, so do not add
-it yourself.
+`sendData()` accepts the complete RFC-style message: headers, a blank line,
+and the body. Use CRLF line endings. RudeSMTP escapes leading dots and appends
+the end-of-data marker, so callers should not add that marker themselves.
 
-## What changed in 2.0.0
+## Handling server responses
 
-The wire behaviour was wrong in several ways that only show against a server
-enforcing the grammar, which is why they survived: the library was only ever
-pointed at lenient ones.
+`getResponseCode()` returns the last three-digit SMTP reply code:
 
-- **Multiline replies desynchronized the session.** Only the first line of a
-  reply was read, so continuation lines were consumed as the reply to the
-  *next* command, putting every later exchange one behind.
-- **A message beginning with `.` lost that character.** Dot-stuffing looked at
-  the preceding character, and the first line of a message has none.
-- **Every message gained a trailing blank line**, because the end-of-data
-  marker was sent as `\r\n.\r\n` unconditionally.
-- **`MAIL FROM: <addr>`** carried a space the grammar does not have, and angle
-  brackets were the caller's problem.
-- **No timeout was ever set**, so a server that accepted the connection and
-  then went quiet hung the calling thread with no way for the caller to
-  intervene.
-- **`SMTP` was copyable while owning a socket**, so a copy double-freed it.
-- **Failed writes were ignored** by `addRecipient`, `sendData` and
-  `disconnect`, which then waited for a reply that could not be coming.
+```cpp
+if (!smtp.addRecipient(address)) {
+    const int responseClass = smtp.getResponseCode() / 100;
+    if (responseClass == 4) {
+        requeue(message); // temporary failure
+    } else if (responseClass == 5) {
+        bounce(message);  // permanent failure
+    }
+}
+```
 
-See `NEWS` for the full list.
+Use `getResponse()` for the server's complete reply and `getError()` for a
+diagnostic that includes transport failures and server-provided detail.
 
-## Roadmap
+## Current transport scope
 
-This library is only useful against a local relay until the following land:
+Version 2.0 supports SMTP using `HELO` over plain TCP. Deploy it with a trusted
+relay that accepts unauthenticated clients from the application host or
+private network. Do not send credentials or sensitive message content over an
+untrusted network with this release.
 
-1. **`EHLO` with capability parsing** — needed before anything else, and the
-   reason multiline reply handling had to be fixed first.
-2. **`AUTH PLAIN` / `AUTH LOGIN`** — required by every hosted provider.
-3. **Implicit TLS on port 465** — rudesocket already has `connectSSL()`.
-4. **`STARTTLS` on port 587** — rudesocket gained `startSSL()` in 1.7.0 for
-   exactly this.
+## Documentation and support
 
-## Bug reports
+- Public API: [`src/smtp.h`](src/smtp.h)
+- Runnable example: [`examples/sendmail.cpp`](examples/sendmail.cpp)
+- Release notes: [`NEWS`](NEWS)
+- Bug reports: [GitHub Issues](https://github.com/mflood/rudesmtp/issues)
 
-https://github.com/mflood/rudesmtp/issues
+## License
 
-## Copying
-
-GPL-2.0-or-later. See `COPYING`.
+GPL-2.0-or-later. See [`COPYING`](COPYING).
