@@ -26,6 +26,7 @@
 #define INCLUDED_SMTPIMPL_H
 
 #include <string>
+#include <vector>
 
 namespace rude
 {
@@ -62,12 +63,51 @@ class SMTPImpl
 	//
 	int d_timeoutsecs;
 
+	// Extensions the server advertised in its EHLO reply, upper-cased, one
+	// per entry, with any parameters kept after the name.
+	//
+	std::vector<std::string> d_extensions;
+
+	// SASL mechanism names from the AUTH extension, upper-cased.
+	//
+	std::vector<std::string> d_authmechanisms;
+
+	// True once the connection is carrying TLS, whether that came from
+	// connectSSL() at connect time or startTLS() afterwards.
+	//
+	bool d_secure;
+
+	// Whether AUTH is permitted on an unencrypted connection. Off by
+	// default; see SMTP::allowPlaintextAuth() for why.
+	//
+	bool d_allowplaintextauth;
+
+	// True when EHLO succeeded, so the extension lists mean something.
+	// A server that only speaks HELO advertises nothing, which is not the
+	// same as advertising nothing after a successful EHLO.
+	//
+	bool d_esmtp;
+
 	// Reads one complete reply, honouring RFC 5321 continuation syntax,
 	// and records its code and text. Returns false only when the reply
 	// could not be read at all; a 4xx or 5xx reply is read successfully
 	// and reported through the code.
 	//
 	bool readResponse();
+
+	// Rebuilds d_extensions and d_authmechanisms from the last EHLO reply.
+	//
+	void parseCapabilities();
+
+	// Sends one line and reads the reply. Behaves exactly like command()
+	// today -- neither one records the outgoing line anywhere, only the
+	// server's reply -- but the AUTH exchange calls this one and nothing
+	// else, so that stays true structurally rather than by convention. If
+	// command() is ever changed to echo the outgoing text into a richer
+	// error message, that change cannot silently start leaking credentials
+	// through the call sites that use this instead.
+	//
+	bool secretCommand(const std::string &text);
 
 	// Sends one command and reads the reply. The send is checked -- several
 	// commands used to ignore whether the write succeeded and then wait for
@@ -100,9 +140,19 @@ class SMTPImpl
 	const char *getResponse() const;
 
 	void setTimeout(int seconds);
+	void allowPlaintextAuth(bool allow);
+	void setSSLVerify(bool verify);
+
+	bool isSecure() const;
+	bool supportsExtension(const char *name) const;
+	bool supportsAuth(const char *mechanism) const;
 
 	bool connect(const char *address, int port);
+	bool connectSSL(const char *address, int port);
+	bool startTLS();
+	bool authenticate(const char *user, const char *password);
 	bool sayHelo(const char *heloname);
+	bool sayEhlo(const char *heloname);
 	bool sayFrom(const char *from);
 	bool addRecipient(const char *recipient);
 	bool sendData(const char *message);
