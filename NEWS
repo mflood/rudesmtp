@@ -3,6 +3,61 @@ See ChangeLog for more detailed information on internal changes
 See the end for copying conditions.
 
 __________________________________________________________________________________
+Release 2.1.0 - Matthew Flood 2026-08-01
+
+	This is the release that removes the "local relay only" limitation
+	2.0.0 shipped with.  It adds EHLO, AUTH PLAIN/LOGIN, implicit TLS
+	(port 465) and STARTTLS (port 587) - the library can now send through
+	any provider that requires encryption and authentication, which in
+	2026 is essentially all of them.  Nothing from 2.0.0's API changed;
+	everything below is additive.
+
+	NEW: sayEhlo() sends EHLO instead of HELO and records what the server
+	advertises.  supportsExtension() and supportsAuth() query the result.
+	Required before startTLS() or authenticate() - both refuse to run
+	without it, since there is nothing to check their preconditions
+	against otherwise.  Falls back cleanly: a server that only understands
+	HELO answers EHLO with 500/502, and sayHelo() still works exactly as
+	before.
+
+	NEW: connectSSL() opens the connection already wrapped in TLS - what
+	port 465 (implicit TLS) expects - by way of rudesocket's connectSSL().
+	The certificate is verified against the connected host by default;
+	see setSSLVerify().
+
+	NEW: startTLS() negotiates TLS on a connection already open (RFC
+	3207) - what port 587 (STARTTLS) expects - by way of rudesocket's
+	startSSL(), added in rudesocket 1.7.0 for exactly this.  Per RFC 3207
+	section 4.2, a successful startTLS() discards every capability
+	learned from the pre-TLS EHLO: that exchange happened before
+	encryption started, so a network attacker could have altered it -
+	hiding AUTH to force a weaker mechanism, for instance.  Call sayEhlo()
+	again afterwards.  This is enforced structurally rather than left to
+	documentation: authenticate() and supportsExtension()/supportsAuth()
+	simply see nothing until the second EHLO runs.  A failed handshake
+	ends the connection, matching startSSL()'s own contract.
+
+	NEW: authenticate() logs in with AUTH PLAIN or AUTH LOGIN (RFC 4954),
+	preferring PLAIN and falling through to LOGIN if a server advertises
+	both but only really accepts one.  Refuses to run on an unencrypted
+	connection unless allowPlaintextAuth(true) has been called - AUTH
+	PLAIN and AUTH LOGIN both put the password on the wire as base64,
+	which is an encoding and not encryption, so sending it in the clear
+	means anyone watching the connection has it.  This is a refusal to
+	send, not "ask and let the server reject it": nothing resembling AUTH
+	reaches the wire when the connection is not encrypted.
+
+	NEW: isSecure(), setSSLVerify(), allowPlaintextAuth() - see above.
+
+	Without a build of rudesocket that has OpenSSL support, connectSSL()
+	and startTLS() return false and getError() says so, matching
+	rudesocket's own connectSSL()/startSSL() behaviour.
+
+	No dependency-version change: rudesocket 1.7.1 was already the floor
+	(startSSL() arrived in 1.7.0; 1.7.1 fixed a socket leak and a SIGPIPE
+	crash found while testing this release).
+
+__________________________________________________________________________________
 Release 2.0.0 - Matthew Flood 2026-07-30
 
 	NOTE: this release still speaks HELO and sends in the clear.  There is
